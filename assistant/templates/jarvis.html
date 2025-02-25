@@ -1,0 +1,203 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .assistant-circle {
+            width: 150px;
+            height: 150px;
+            background: linear-gradient(145deg, #007bff, #0066cc);
+            border-radius: 50%;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 123, 255, 0.5),
+                        0 0 40px rgba(0, 123, 255, 0.3),
+                        0 0 60px rgba(0, 123, 255, 0.2);
+            transform-style: preserve-3d;
+            animation: float 3s ease-in-out infinite;
+            cursor: pointer;
+            transition: transform 0.5s ease, box-shadow 0.5s ease;
+        }
+
+        .assistant-circle::before {
+            content: '';
+            position: absolute;
+            top: 10%;
+            left: 10%;
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 10%, transparent 10.01%);
+            transform: translateZ(-50px);
+            filter: blur(10px);
+        }
+
+        .assistant-circle::after {
+            content: '';
+            position: absolute;
+            top: 20%;
+            left: 20%;
+            width: 60%;
+            height: 60%;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 10%, transparent 10.01%);
+            transform: translateZ(-30px);
+            filter: blur(5px);
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0) rotateX(0) rotateY(0);
+            }
+            50% {
+                transform: translateY(-10px) rotateX(10deg) rotateY(10deg);
+            }
+        }
+
+        .wave {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            position: absolute;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 10%, transparent 10.01%);
+            animation: waveAnimation 1.5s infinite;
+            opacity: 0;
+        }
+
+        @keyframes waveAnimation {
+            0% {
+                transform: scale(0.5);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+
+        .listening .wave {
+            animation: waveAnimation 1s infinite;
+        }
+
+        .assistant-circle:hover {
+            transform: scale(1.1) rotateX(10deg) rotateY(10deg);
+            box-shadow: 0 0 30px rgba(0, 123, 255, 0.7),
+                        0 0 60px rgba(0, 123, 255, 0.5),
+                        0 0 90px rgba(0, 123, 255, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 flex flex-col items-center justify-start h-screen">
+    <div class="mt-4">
+        <img src="{% static 'JARVIS.png' %}" style="height:200px; margin-top: 25px;margin-bottom:-100px;">
+    </div>
+    <div class="flex items-center justify-center flex-grow">
+        <div class="assistant-circle" id="assistantCircle">
+            <div class="wave"></div>
+        </div>
+    </div>
+
+    <script>
+        const assistantCircle = document.getElementById('assistantCircle');
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        const synth = window.speechSynthesis;
+
+        recognition.lang = 'en-US';
+
+        recognition.onstart = function() {
+            assistantCircle.classList.add('listening');
+        };
+
+        recognition.onend = function() {
+            assistantCircle.classList.remove('listening');
+        };
+
+        recognition.onresult = function(event) {
+            const transcript = event.results[0][0].transcript;
+            fetchAssistantResponse(transcript);
+        };
+
+        assistantCircle.addEventListener('click', () => {
+            recognition.start();
+        });
+
+        function fetchAssistantResponse(query) {
+            fetch('{% url "assistant" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `query=${encodeURIComponent(query)}&csrfmiddlewaretoken={{ csrf_token }}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                const responseText = data.response;
+                speak(responseText);
+            });
+        }
+
+        function speak(audio) {
+            const utterance = new SpeechSynthesisUtterance(audio);
+            synth.speak(utterance);
+        }
+
+        // Add the circle animation with voice interaction
+        if (!navigator.mediaDevices || !window.AudioContext) {
+            alert('Your browser does not support the required audio features. Please use Chrome or Edge.');
+        } else {
+            let audioContext, analyser, microphone, dataArray;
+
+            // Initialize the audio context and analyser
+            function initAudio() {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+            }
+
+            // Start listening to the microphone
+            async function startListening() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    microphone.connect(analyser);
+                    animateCircle();
+                } catch (error) {
+                    console.error('Error accessing microphone:', error);
+                }
+            }
+
+            // Animate the circle based on the audio data
+            function animateCircle() {
+                analyser.getByteFrequencyData(dataArray);
+
+                // Calculate the average amplitude of the audio data
+                const averageAmplitude = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+
+                // Scale the circle based on the amplitude
+                const scale = 1 + (averageAmplitude / 100); // Adjust the scaling factor as needed
+                assistantCircle.style.transform = `scale(${scale}) rotateX(${averageAmplitude}deg) rotateY(${averageAmplitude}deg)`;
+
+                // Change the color based on the amplitude
+                const colorValue = Math.min(255, 100 + averageAmplitude * 2);
+                assistantCircle.style.background = `linear-gradient(145deg, rgb(0, ${colorValue}, 255), #0066cc)`;
+
+                // Continue the animation
+                requestAnimationFrame(animateCircle);
+            }
+
+            // Start the assistant
+            assistantCircle.addEventListener('click', () => {
+                if (!audioContext) {
+                    initAudio();
+                }
+                startListening();
+                assistantCircle.classList.add('listening'); // Add listening animation
+            });
+        }
+    </script>
+</body>
+</html>
